@@ -699,12 +699,17 @@ with tab2:
         raw_brand = row.get("brand")
         if not raw_brand or str(raw_brand) in ("nan", "None", ""):
             continue
-        parent    = str(row.get("parent_company") or "")
-        ticker    = str(row.get("ticker") or "")
-        price     = row.get("price_usd")
-        is_listed = bool(row.get("is_listed", False))
+        parent           = str(row.get("parent_company") or "")
+        ticker           = str(row.get("ticker") or "")
+        ticker_candidate = str(row.get("ticker_candidate") or "")
+        price            = row.get("price_usd")
+        is_listed        = bool(row.get("is_listed", False))
+        has_candidate    = bool(ticker_candidate and ticker_candidate not in ("nan", "None", ""))
         if is_listed and ticker and ticker not in ("PRIVATE", "nan", "") and price is not None:
             label = f"{parent} ({ticker} ${float(price):.2f})"
+        elif has_candidate and not is_listed:
+            # Has a known ticker but yfinance couldn't resolve it
+            label = f"{parent} ({ticker_candidate} NOT FOUND)"
         elif parent and parent not in ("Independent", "Private Listing", "nan", ""):
             label = f"{parent} (PRIVATE)"
         else:
@@ -736,9 +741,10 @@ with tab2:
             del brand_groups[_lbl]
 
     def _psort(lbl: str) -> tuple:
-        if "Private Listing" in lbl: return (2, lbl)   # catch-all independents last
-        if "(PRIVATE)" in lbl:       return (1, lbl)   # known private companies
-        return (0, lbl)                                 # listed (have ticker)
+        if "Private Listing" in lbl:  return (3, lbl)   # catch-all last
+        if "(PRIVATE)" in lbl:        return (2, lbl)   # known private
+        if "NOT FOUND" in lbl:        return (1, lbl)   # ticker known but unresolved
+        return (0, lbl)                                  # listed
 
     sorted_parents = sorted(brand_groups.keys(), key=_psort)
 
@@ -965,8 +971,13 @@ function styleNodes(svg) {{
       );
     }}
 
+    // Strip financial note "(PRIVATE)", "(SBUX $97.57)", "(NOT FOUND)" etc.
+    // before checking cafeSet — solo-parent nodes carry this suffix in their
+    // label but cafe_brands_list contains the bare brand name.
+    const bareLabel = label.replace(/\\s*\\([^)]+\\)\\s*$/, '').trim();
+
     el.style.textUnderlineOffset = '3px';
-    if (cafeSet.has(label)) {{
+    if (cafeSet.has(label) || cafeSet.has(bareLabel)) {{
       // Actual London cafe — blue bold underline
       el.style.fontWeight             = '700';
       el.style.textDecoration         = 'underline';
