@@ -676,8 +676,8 @@ with tab2:
         '<div class="info-bar">'
         '<strong>Summary:</strong> Each branch represents a parent company. '
         'Multiple locations of the same brand collapse into one node. '
-        'Edge colours are assigned per parent group; subsidiary edges shift '
-        'through a blue scale where intensity reflects market cap share. '
+        '<b style="text-decoration:underline;text-decoration-color:#2563eb">Underlined bold</b> nodes are actual London cafe chains; '
+        'underlined nodes in other colours are corporate subsidiaries. '
         'Use +/− or scroll to zoom, drag to pan, click to expand or collapse.'
         '</div>',
         unsafe_allow_html=True,
@@ -802,6 +802,15 @@ with tab2:
     }
     sub_parent_json = json.dumps(sub_parent_map)
 
+    # cafe_parent_map: {cafe_brand: parent_label} for actual London cafes
+    cafe_parent_map = {
+        bn: pl
+        for pl, brands in brand_groups.items()
+        for bn, info in brands.items()
+        if not info["is_sub"]
+    }
+    cafe_parent_json = json.dumps(cafe_parent_map)
+
     md_escaped = (
         markmap_md
         .replace("\\", "\\\\")
@@ -848,12 +857,13 @@ html, body {{ width: 100%; height: {HEIGHT}px; overflow: hidden; font-family: 'S
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/markmap-autoloader@latest"></script>
 <script>
-const dark       = window.matchMedia('(prefers-color-scheme: dark)').matches;
-const colMap     = {colour_map_json};
-const subParent  = {sub_parent_json};    // {{subsidiaryBrand: parentLabel}}
-const cafeSet    = new Set({cafe_brands_json});
-const locCount   = {loc_count_json};     // {{cafeBrand: locationCount}}
-const text       = dark ? '#e6e3db' : '#111111';
+const dark        = window.matchMedia('(prefers-color-scheme: dark)').matches;
+const colMap      = {colour_map_json};
+const subParent   = {sub_parent_json};   // {{subBrand: parentLabel}}
+const cafeParent  = {cafe_parent_json};  // {{cafeBrand: parentLabel}}
+const cafeSet     = new Set({cafe_brands_json});
+const text        = dark ? '#e6e3db' : '#111111';
+const CAFE_BLUE   = dark ? '#60a5fa' : '#2563eb';
 
 document.body.style.background = dark ? '#0d0f16' : '#f7f7fa';
 
@@ -866,16 +876,129 @@ document.querySelectorAll('.zb').forEach(b => {{
 
 function hsl(h,s,l) {{ return `hsl(${{h}},${{s}}%,${{l}}%)`; }}
 
-// Blue scale for actual London cafe chains — brighter/thicker = more locations
-function cafeBlue(ratio) {{
-  const lo = dark ? [212, 62, 36] : [212, 72, 62];
-  const hi = dark ? [216, 90, 62] : [216, 82, 38];
-  const f  = (a,b,t) => Math.round(a + (b-a)*t);
-  return hsl(f(lo[0],hi[0],ratio), f(lo[1],hi[1],ratio), f(lo[2],hi[2],ratio));
+const allParents = new Set(Object.keys(colMap));
+
+// ── Node text styling ─────────────────────────────────────────────
+// Visual distinction lives on the text underline, not the edges:
+//   Cafe chains  → blue bold underline
+//   Subsidiaries → parent-hue coloured underline
+//   Parent nodes → no underline, semi-bold
+function styleNodes(svg) {{
+  svg.querySelectorAll('g.markmap-node').forEach(g => {{
+    const el = g.querySelector('foreignObject div');
+    if (!el) return;
+    const label = (el.textContent || '').trim();
+
+    el.style.color      = text;
+    el.style.fontFamily = "'Source Sans 3', sans-serif";
+
+    // Inject fin-note span for (TICKER $XX) / (PRIVATE) — only once
+    if (!el.querySelector('.fin-note')) {{
+      el.innerHTML = el.innerHTML.replace(
+        /(\\([^)]+\\))/g,
+        '<span class="fin-note" style="font-size:0.7em;opacity:0.52;font-weight:400;letter-spacing:0">$1</span>'
+      );
+    }}
+
+    el.style.textUnderlineOffset = '3px';
+    if (cafeSet.has(label)) {{
+      // Actual London cafe — blue bold underline
+      el.style.fontWeight             = '700';
+      el.style.textDecoration         = 'underline';
+      el.style.textDecorationColor    = CAFE_BLUE;
+      el.style.textDecorationThickness = '2px';
+    }} else if (subParent[label] !== undefined) {{
+      // Wikipedia subsidiary — parent-hue coloured underline
+      const hue = colMap[subParent[label]] ?? 210;
+      el.style.fontWeight             = '400';
+      el.style.textDecoration         = 'underline';
+      el.style.textDecorationColor    = hsl(hue, 62, dark ? 58 : 44);
+      el.style.textDecorationThickness = '1.5px';
+    }} else {{
+      // Parent node
+      el.style.fontWeight    = '600';
+      el.style.textDecoration = 'none';
+    }}
+  }});
 }}
 
-const allParents = new Set(Object.keys(colMap));
-const maxLoc     = Math.max(1, ...Object.values(locCount));
+// ── Edge styling — neutral, tinted by parent hue ─────────────────
+function styleEdges(svg, nodeIdx) {{
+  svg.querySelectorAll('path.markmap-link').forEach(path => {{
+    const d    = path.getAttribute('d') || '';
+    const nums = d.match(/-?[\\d.]+/g);
+    if (!nums || nums.length < 4) return;
+    const tx = parseFloat(nums[nums.length-2]);
+    const ty = parseFloat(nums[nums.length-1]);
+    let nearest = null, minD = Infinity;
+    nodeIdx.forEach(n => {{ const d2=Math.hypot(n.x-tx,n.y-ty); if(d2<minD){{minD=d2;nearest=n;}} }});
+    if (!nearest || minD > 80) return;
+    const label = nearest.label;
+
+    // Determine which parent this node belongs to
+    const pLbl = cafeParent[label] || subParent[label] || (allParents.has(label) ? label : null);
+    const hue  = pLbl ? (colMap[pLbl] ?? 210) : 210;
+    let stroke, width;
+    if (allParents.has(label)) {{
+      stroke = hsl(hue, dark?38:28, dark?34:80); width = '2.0';
+    }} else {{
+      stroke = hsl(hue, dark?32:22, dark?30:84); width = '1.4';
+    }}
+    path.setAttribute('stroke',        stroke);
+    path.setAttribute('stroke-width',  width);
+    path.setAttribute('fill',          'none');
+    path.setAttribute('stroke-linecap','round');
+    path.setAttribute('opacity',       '0.72');
+  }});
+}}
+
+// ── Legend — right-middle of map ──────────────────────────────────
+function buildLegend() {{
+  let leg = document.getElementById('mmlegend');
+  if (!leg) {{
+    leg = document.createElement('div');
+    leg.id = 'mmlegend';
+    document.getElementById('wrap').appendChild(leg);
+  }}
+  const bg  = dark ? 'rgba(13,15,22,0.90)'    : 'rgba(255,255,255,0.93)';
+  const bd  = dark ? '#2a2e42'                 : '#e0e0ee';
+  const col = dark ? '#e6e3db'                 : '#111';
+  const dim = dark ? 'rgba(255,255,255,0.32)'  : 'rgba(0,0,0,0.36)';
+  const sep = dark ? 'rgba(255,255,255,0.07)'  : 'rgba(0,0,0,0.07)';
+
+  leg.style.cssText = `
+    position:absolute; right:18px; top:50%; transform:translateY(-50%);
+    background:${{bg}}; border:1px solid ${{bd}}; border-radius:12px;
+    padding:14px 16px; z-index:99; backdrop-filter:blur(10px);
+    font-family:'Source Sans 3',sans-serif; min-width:170px; max-width:215px;
+  `;
+
+  let html = `<div style="font-size:10px;font-weight:700;text-transform:uppercase;
+    letter-spacing:.10em;color:${{dim}};margin-bottom:10px">Legend</div>`;
+
+  // Cafe chain row
+  html += `<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px;
+    padding-bottom:9px;border-bottom:1px solid ${{sep}}">
+    <span style="font-size:13px;color:${{CAFE_BLUE}}">━</span>
+    <span style="font-weight:700;color:${{col}};font-size:11px;
+      text-decoration:underline;text-decoration-color:${{CAFE_BLUE}};
+      text-underline-offset:2px;text-decoration-thickness:2px">London Cafe</span>
+  </div>`;
+
+  // One row per parent company
+  for (const [lbl, hue] of Object.entries(colMap)) {{
+    let name = lbl.replace(/\\s*\\([^)]+\\)\\s*$/, '').trim();
+    if (name.length > 27) name = name.substring(0, 25) + '…';
+    const c = hsl(hue, 62, dark ? 58 : 44);
+    html += `<div style="display:flex;align-items:center;gap:9px;margin-bottom:6px">
+      <span style="font-size:13px;color:${{c}}">━</span>
+      <span style="color:${{col}};font-size:11px;
+        text-decoration:underline;text-decoration-color:${{c}};
+        text-underline-offset:2px;text-decoration-thickness:1.5px">${{name}}</span>
+    </div>`;
+  }}
+  leg.innerHTML = html;
+}}
 
 function recolour() {{
   const svg = document.querySelector('.markmap svg');
@@ -886,16 +1009,8 @@ function recolour() {{
     c.setAttribute('stroke',       dark ? '#252a3c' : '#e2e2ea');
     c.setAttribute('stroke-width', '1.5');
   }});
-  svg.querySelectorAll('foreignObject div').forEach(el => {{
-    el.style.color = text; el.style.fontFamily = "'Source Sans 3', sans-serif";
-    // Render (PRIVATE) / (TICK $XX.XX) in a smaller, dimmer style — only once
-    if (!el.querySelector('.fin-note')) {{
-      el.innerHTML = el.innerHTML.replace(
-        /(\\([^)]+\\))/g,
-        '<span class="fin-note" style="font-size:0.7em;opacity:0.52;font-weight:400;letter-spacing:0">$1</span>'
-      );
-    }}
-  }});
+
+  styleNodes(svg);
 
   const nodeIdx = Array.from(svg.querySelectorAll('g.markmap-node')).map(g => {{
     const t = g.getAttribute('transform') || '';
@@ -904,40 +1019,8 @@ function recolour() {{
     return m ? {{ x: parseFloat(m[1]), y: parseFloat(m[2]), label: lbl.trim() }} : null;
   }}).filter(Boolean);
 
-  svg.querySelectorAll('path.markmap-link').forEach(path => {{
-    const d = path.getAttribute('d') || '';
-    const nums = d.match(/-?[\\d.]+/g);
-    if (!nums || nums.length < 4) return;
-    const tx = parseFloat(nums[nums.length-2]);
-    const ty = parseFloat(nums[nums.length-1]);
-    let nearest = null, minD = Infinity;
-    nodeIdx.forEach(n => {{ const d2=Math.hypot(n.x-tx,n.y-ty); if(d2<minD){{minD=d2;nearest=n;}} }});
-    if (!nearest || minD > 80) return;
-    const label = nearest.label;
-
-    let stroke, width, opacity = '0.88';
-    if (allParents.has(label)) {{
-      // Parent company node — neutral connector
-      stroke = dark ? '#3a3e4a' : '#c4c4d0'; width = '2.0';
-    }} else if (cafeSet.has(label)) {{
-      // Actual London cafe chain — blue, width scales with location count
-      const cnt   = locCount[label] || 1;
-      const ratio = Math.min(1, Math.log(cnt + 1) / Math.log(maxLoc + 1));
-      stroke  = cafeBlue(ratio);
-      width   = String((1.6 + ratio * 2.2).toFixed(1));
-      opacity = '0.95';
-    }} else if (subParent[label] !== undefined) {{
-      // Wikipedia subsidiary (not a London cafe) — muted slate
-      stroke = dark ? '#3d4a5e' : '#b0b8cc'; width = '1.2'; opacity = '0.70';
-    }} else {{
-      stroke = dark ? '#3a3e4a' : '#c0c0cc'; width = '1.4';
-    }}
-    path.setAttribute('stroke',       stroke);
-    path.setAttribute('stroke-width', width);
-    path.setAttribute('fill',         'none');
-    path.setAttribute('stroke-linecap','round');
-    path.setAttribute('opacity',      opacity);
-  }});
+  styleEdges(svg, nodeIdx);
+  buildLegend();
 }}
 
 function waitForMarkmap(n) {{
