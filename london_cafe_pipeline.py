@@ -101,7 +101,7 @@ BRAND_TO_PARENT: dict[str, tuple[str, str | None]] = {
     "Caffe Ritazza":       ("SSP Group plc",                        "SSPG.L"),
     "Gail's Bakery":       ("Gail's Bakery Ltd",                    None),
     "Gail's":              ("Gail's Bakery Ltd",                    None),
-    "Leon":                ("EG Group",                             None),
+    "Leon":                ("Leon Restaurants Ltd",                  None),
     "Benugo":              ("Benugo Ltd",                           None),
     "AMT Coffee":          ("AMT Coffee Ltd",                       None),
     "Esquires Coffee":     ("Cooks Coffee Company Ltd",             "COOK.NZ"),
