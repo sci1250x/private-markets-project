@@ -679,9 +679,16 @@ with tab2:
     # Build deduplicated brand tree for the map
     brand_groups: dict[str, dict] = {}
     for _, row in raw_df.iterrows():
-        label = str(row.get("display_label") or "")
-        if not label or label in ("nan", "Private / Unlisted", "None"):
-            label = str(row.get("parent_company") or "Private Listing")
+        parent    = str(row.get("parent_company") or "")
+        ticker    = str(row.get("ticker") or "")
+        price     = row.get("price_usd")
+        is_listed = bool(row.get("is_listed", False))
+        if is_listed and ticker and ticker not in ("PRIVATE", "nan", "") and price is not None:
+            label = f"{parent} ({ticker} ${float(price):.2f})"
+        elif parent and parent not in ("Independent", "nan", ""):
+            label = f"{parent} (PRIVATE)"
+        else:
+            label = "Private Listing (PRIVATE)"
         brand   = str(row.get("brand") or row.get("name", ""))
         mkt_cap = float(row.get("display_mktcap_bn") or row.get("market_cap_bn") or 0)
         is_sub  = str(row.get("business_status", "")) == "SUBSIDIARY"
@@ -691,9 +698,9 @@ with tab2:
             brand_groups[label][brand] = {"mkt_cap": mkt_cap, "is_sub": is_sub}
 
     def _psort(lbl: str) -> tuple:
-        if "Private" in lbl and "(" not in lbl: return (1, lbl)
-        if "(" not in lbl:                       return (2, lbl)
-        return (0, lbl)
+        if "Private Listing" in lbl: return (2, lbl)   # catch-all independents last
+        if "(PRIVATE)" in lbl:       return (1, lbl)   # known private companies
+        return (0, lbl)                                 # listed (have ticker)
 
     sorted_parents = sorted(brand_groups.keys(), key=_psort)
     HUES = [210, 158, 28, 286, 338, 176, 56, 258, 14, 128, 50, 194]
@@ -715,23 +722,25 @@ with tab2:
         cb, cp = _clean(brand), _clean(parent_label)
         return bool(cb and cp and (cb in cp or cp in cb))
 
-    md_lines = ["# London Cafe Ownership"]
+    md_lines = ["# London Cafes"]
     for pl in sorted_parents:
-        brands   = brand_groups[pl]
-        safe_p   = pl.replace("|", "-").replace("`", "'").replace("$", "")
-        # If there's only one brand and it IS the parent (e.g. "Greggs" / "Greggs plc"),
-        # skip the redundant parent wrapper — show the brand directly at ## level.
+        brands    = brand_groups[pl]
+        # Keep $ — md_escaped replaces $ with \$ so markmap renders it as a literal $
+        safe_p    = pl.replace("|", "-").replace("`", "'")
         solo_same = (
             len(brands) == 1
             and _is_self_parent(next(iter(brands)), pl)
         )
         if solo_same:
-            safe_b = next(iter(brands)).replace("|", "-").replace("`", "'").replace("$", "")
-            md_lines.append(f"## {safe_b}")
+            # Show brand name but carry over the (TICKER $XX.XX) / (PRIVATE) note
+            paren_m = _re.search(r'\([^)]+\)\s*$', pl)
+            paren   = f" {paren_m.group(0)}" if paren_m else ""
+            safe_b  = next(iter(brands)).replace("|", "-").replace("`", "'")
+            md_lines.append(f"## {safe_b}{paren}")
         else:
             md_lines.append(f"## {safe_p}")
             for bn in sorted(brands.keys(), key=lambda x: -brands[x]["mkt_cap"]):
-                safe_b = bn.replace("|", "-").replace("`", "'").replace("$", "")
+                safe_b = bn.replace("|", "-").replace("`", "'")
                 md_lines.append(f"### {safe_b}")
     markmap_md = "\n".join(md_lines)
 
@@ -830,18 +839,25 @@ function recolour() {{
   }});
   svg.querySelectorAll('foreignObject div').forEach(el => {{
     el.style.color = text; el.style.fontFamily = "'Source Sans 3', sans-serif";
+    // Render (PRIVATE) / (TICK $XX.XX) in a smaller, dimmer style — only once
+    if (!el.querySelector('.fin-note')) {{
+      el.innerHTML = el.innerHTML.replace(
+        /(\\([^)]+\\))/g,
+        '<span class="fin-note" style="font-size:0.7em;opacity:0.52;font-weight:400;letter-spacing:0">$1</span>'
+      );
+    }}
   }});
 
   const nodeIdx = Array.from(svg.querySelectorAll('g.markmap-node')).map(g => {{
     const t = g.getAttribute('transform') || '';
-    const m = t.match(/translate\((-?[\d.]+),\s*(-?[\d.]+)\)/);
+    const m = t.match(/translate\\((-?[\\d.]+),\\s*(-?[\\d.]+)\\)/);
     const lbl = (g.querySelector('foreignObject div') || {{}}).textContent || '';
     return m ? {{ x: parseFloat(m[1]), y: parseFloat(m[2]), label: lbl.trim() }} : null;
   }}).filter(Boolean);
 
   svg.querySelectorAll('path.markmap-link').forEach(path => {{
     const d = path.getAttribute('d') || '';
-    const nums = d.match(/-?[\d.]+/g);
+    const nums = d.match(/-?[\\d.]+/g);
     if (!nums || nums.length < 4) return;
     const tx = parseFloat(nums[nums.length-2]);
     const ty = parseFloat(nums[nums.length-1]);
@@ -913,7 +929,7 @@ function waitForMarkmap(n) {{
     document.getElementById('zfit').onclick = () => doFit(0);
 
     new MutationObserver(() => setTimeout(recolour, 50))
-      .observe(svg, {{ childList:true, subtree:true, attributes:true }});
+      .observe(svg, {{ childList:true, subtree:true }});
   }} else if (n > 0) {{
     setTimeout(() => waitForMarkmap(n-1), 300);
   }}
