@@ -682,7 +682,7 @@ with tab2:
         '<div class="info-bar">'
         '<strong>Summary:</strong> Each branch represents a parent company. '
         'Multiple locations of the same brand collapse into one node. '
-        '<b style="text-decoration:underline;text-decoration-color:#2563eb">Underlined bold</b> nodes are actual London cafe chains; '
+        '<b style="text-decoration:underline;text-decoration-color:#2563eb">Underlined bold</b> nodes are actual London cafes; '
         'underlined nodes in other colours are corporate subsidiaries. '
         'Use +/− or scroll to zoom, drag to pan, click to expand or collapse.'
         '</div>',
@@ -818,7 +818,7 @@ with tab2:
 
     colour_map_json = json.dumps({p: parent_hue[p] for p in sorted_parents})
 
-    # cafe_brands: actual London cafe chains (not Wikipedia subsidiaries)
+    # cafe_brands: actual London cafes (not Wikipedia subsidiaries)
     # loc_count:   how many locations each cafe brand has (for edge width)
     cafe_brands_list = [
         brand
@@ -1024,7 +1024,7 @@ function buildLegend() {{
     <span style="font-size:13px;color:${{CAFE_BLUE}}">━</span>
     <span style="font-weight:700;color:${{col}};font-size:11px;
       text-decoration:underline;text-decoration-color:${{CAFE_BLUE}};
-      text-underline-offset:2px;text-decoration-thickness:2px">London Cafe Chain</span>
+      text-underline-offset:2px;text-decoration-thickness:2px">Cafes</span>
   </div>`;
 
   // One row per industry
