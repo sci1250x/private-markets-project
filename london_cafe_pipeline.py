@@ -879,6 +879,13 @@ def build_enriched_df(places_df: pd.DataFrame,
         for sub in subs:
             if not sub or sub == row["name"]:
                 continue
+            # Skip if this sub is already a first-class brand with its own
+            # parent mapping (e.g. Wikipedia lists Starbucks as an SSP sub
+            # because SSP operates licensed Starbucks in travel hubs — but
+            # Starbucks Corporation is the real owner).
+            canonical_sub = normalise_brand(sub)
+            if canonical_sub and canonical_sub in BRAND_TO_PARENT:
+                continue
             sub_rows.append({
                 "place_id":           None,
                 "name":               sub,
