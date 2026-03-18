@@ -268,19 +268,26 @@ hr { border: none; border-top: 1px solid rgba(128,128,128,0.13); margin: 20px 0;
 </style>
 
 <script>
-// Inject a style tag directly into <head> to beat Streamlit's specificity
+// Streamlit's React re-renders headings after any <style> tag we inject,
+// overriding font-size. Fix: watch the DOM with a MutationObserver and
+// apply inline styles directly — inline !important beats all stylesheets.
 (function() {
-  const s = document.createElement('style');
-  s.textContent = `
-    h1 { font-size: 45px !important; font-weight: 700 !important;
-         font-family: 'Source Sans 3', sans-serif !important;
-         letter-spacing: -0.02em !important; }
-    h2 { font-size: 22px !important; font-weight: 700 !important;
-         font-family: 'Source Sans 3', sans-serif !important; }
-    h3 { font-size: 18px !important; font-weight: 600 !important;
-         font-family: 'Source Sans 3', sans-serif !important; }
-  `;
-  document.head.appendChild(s);
+  function applyHeadingStyles() {
+    document.querySelectorAll('h1').forEach(el => {
+      el.style.setProperty('font-size',      '45px',                           'important');
+      el.style.setProperty('font-weight',    '700',                            'important');
+      el.style.setProperty('font-family',    "'Source Sans 3', sans-serif",    'important');
+      el.style.setProperty('letter-spacing', '-0.02em',                        'important');
+      el.style.setProperty('line-height',    '1.1',                            'important');
+    });
+  }
+  // Run immediately, then again after Streamlit's first render pass
+  applyHeadingStyles();
+  setTimeout(applyHeadingStyles, 300);
+  setTimeout(applyHeadingStyles, 1000);
+  // Keep watching — Streamlit can re-render on interaction
+  new MutationObserver(applyHeadingStyles)
+    .observe(document.documentElement, { childList: true, subtree: true });
 })();
 </script>
 """, unsafe_allow_html=True)
